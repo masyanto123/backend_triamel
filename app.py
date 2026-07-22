@@ -24,7 +24,7 @@ db = SQLAlchemy(app)
 # Model tabel Product
 class Product(db.Model):
     __tablename__ = 'products'
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {'extend_existing': True}  # <-- Tambahkan baris ini
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), nullable=False)
