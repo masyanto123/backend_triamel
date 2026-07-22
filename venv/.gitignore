@@ -1,0 +1,16 @@
+# Virtual Environment (Wajib diabaikan)
+venv/
+env/
+ENV/
+
+# Python Cache & File Sampah
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# File Konfigurasi Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.log
