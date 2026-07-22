@@ -6,13 +6,12 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# 1. Ambil DATABASE_URL dari Railway, jika tidak ada baru gunakan URL Neon DB
+# 1. Konfigurasi Koneksi Database
 db_url = os.environ.get(
     'DATABASE_URL',
     'postgresql://neondb_owner:npg_LMGqD79goEWS@ep-muddy-butterfly-azxyk7tu-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
 )
 
-# 2. Perbaikan kompatibilitas jika Railway memberikan 'postgres://' bukannya 'postgresql://'
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -21,10 +20,29 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Model tabel Product
+# ==========================================
+# MODEL DATABASE
+# ==========================================
+
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    phone = db.Column(db.String(20), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "phone": self.phone or ""
+        }
+
 class Product(db.Model):
     __tablename__ = 'products'
-    __table_args__ = {'extend_existing': True}  # <-- Tambahkan baris ini
+    __table_args__ = {'extend_existing': True}
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), nullable=False)
@@ -44,28 +62,59 @@ class Product(db.Model):
             "description": self.description,
             "image": self.image
         }
-# Model tabel User (Baru)
-# Tambahkan kolom phone di class User
 
-# Model tabel User (Baru)
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
-    phone = db.Column(db.String(20), nullable=True)
+# ==========================================
+# ENDPOINT / ROUTES
+# ==========================================
 
-    # Perbaiki dari Tto_dict menjadi to_dict
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "email": self.email,
-            "phone": self.phone or ""
-        }
+# --- AUTH & USER ENDPOINTS ---
 
-# Endpoint Get & Update Profil User
+@app.route('/api/register', methods=['POST'])
+def register():
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not name or not email or not password:
+            return jsonify({"error": "Semua kolom harus diisi!"}), 400
+        
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({"error": "Email sudah terdaftar!"}), 400
+        
+        new_user = User(name=name, email=email, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Registrasi berhasil!",
+            "user": new_user.to_dict()
+        }), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+
+        user = User.query.filter_by(email=email, password=password).first()
+
+        if user:
+            return jsonify({
+                "message": "Login Berhasil",
+                "user": user.to_dict()
+            }), 200
+        else:
+            return jsonify({"error": "Email atau password salah!"}), 401
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/user/<int:user_id>', methods=['GET', 'PUT'])
 def manage_user(user_id):
     user = User.query.get(user_id)
@@ -89,54 +138,9 @@ def manage_user(user_id):
             }), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
-        
-# Endpoint Login (Baru)
-@app.route('/api/login', methods=['POST'])
-def login():
-    try:
-        data = request.get_json()
-        email = data.get('email')
-        password = data.get('password')
 
-        # Cari user berdasarkan email dan password di Neon DB
-        user = User.query.filter_by(email=email, password=password).first()
+# --- PRODUCT ENDPOINTS ---
 
-        if user:
-            return jsonify({
-                "message": "Login Berhasil",
-                "user": user.to_dict()
-            }), 200
-        else:
-            return jsonify({"error": "Email atau password salah!"}), 401
-            
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-# --- MODEL PRODUCT ---
-class Product(db.Model):
-    __tablename__ = 'products'
-    __table_args__ = {'extend_existing': True}  # <-- Tambahkan baris ini
-    
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(150), nullable=False)
-    category = db.Column(db.String(100), nullable=False)
-    price = db.Column(db.Numeric(10, 2), nullable=False)
-    stock = db.Column(db.Integer, nullable=False)
-    description = db.Column(db.Text)
-    image = db.Column(db.String(255), default='plant_1.png')
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "category": self.category,
-            "price": float(self.price),
-            "stock": self.stock,
-            "description": self.description,
-            "image": self.image
-        }
-
-# --- ENDPOINT GET PRODUCTS ---
 @app.route('/api/products', methods=['GET'])
 def get_products():
     try:
@@ -150,49 +154,21 @@ def get_products():
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
-@app.route('/api/register', methods=['POST'])
-def register():
-    try:
-        data = request.get_json()
-        name = data.get('name')
-        email = data.get('email')
-        password = data.get('password')
-        
-        if not name or not email or not password:
-            return jsonify({"error": "Semua kolom harus diisi!"}), 400
-        
-        # Cek apakah email sudah terdaftar
-        existing_user = User.query.filter_by(email=email).first()
-        if existing_user:
-            return jsonify({"error": "Email sudah terdaftar!"}), 400
-        
-        # Buat user baru
-        new_user = User(name=name, email=email, password=password)
-        db.session.add(new_user)
-        db.session.commit()
-        
-        return jsonify({
-            "message": "Registrasi berhasil!",
-            "user": new_user.to_dict()
-        }), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
-# Endpoint Produk Unggulan
+# Endpoint Produk Unggulan (Mengambil 6 produk pertama)
 @app.route('/api/products/featured', methods=['GET'])
 def get_featured_products():
     try:
-        products = Product.query.filter_by(is_featured=True).all()
+        products = Product.query.limit(6).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Endpoint Produk Populer
+# Endpoint Produk Populer (Mengambil 6 produk berikutnya)
 @app.route('/api/products/popular', methods=['GET'])
 def get_popular_products():
     try:
-        products = Product.query.filter_by(is_popular=True).all()
+        products = Product.query.offset(6).limit(6).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
