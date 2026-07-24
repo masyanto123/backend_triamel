@@ -117,7 +117,8 @@ def login():
 
 @app.route('/api/user/<int:user_id>', methods=['GET', 'PUT'])
 def manage_user(user_id):
-    user = User.query.get(user_id)
+    # Menggunakan db.session.get untuk standar SQLAlchemy 2.0
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "Pengguna tidak ditemukan"}), 404
 
@@ -127,8 +128,16 @@ def manage_user(user_id):
     elif request.method == 'PUT':
         try:
             data = request.get_json()
+            new_email = data.get('email', user.email)
+
+            # Cek jika email diubah dan email baru ternyata sudah dipakai user lain
+            if new_email != user.email:
+                existing_email = User.query.filter_by(email=new_email).first()
+                if existing_email:
+                    return jsonify({"error": "Email sudah digunakan oleh pengguna lain!"}), 400
+
             user.name = data.get('name', user.name)
-            user.email = data.get('email', user.email)
+            user.email = new_email
             user.phone = data.get('phone', user.phone)
 
             db.session.commit()
@@ -137,6 +146,7 @@ def manage_user(user_id):
                 "user": user.to_dict()
             }), 200
         except Exception as e:
+            db.session.rollback()
             return jsonify({"error": str(e)}), 500
 
 # --- PRODUCT ENDPOINTS ---
