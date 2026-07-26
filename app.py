@@ -4,7 +4,8 @@ from flask_cors import CORS
 import os
 
 app = Flask(__name__)
-CORS(app)
+# Konfigurasi CORS terbuka agar Flutter Web dapat mengakses API
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # 1. Konfigurasi Koneksi Database
 db_url = os.environ.get(
@@ -137,7 +138,6 @@ def login():
 
 @app.route('/api/user/<int:user_id>', methods=['GET', 'PUT'])
 def manage_user(user_id):
-    # Menggunakan db.session.get untuk standar SQLAlchemy 2.0
     user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "Pengguna tidak ditemukan"}), 404
@@ -150,7 +150,6 @@ def manage_user(user_id):
             data = request.get_json()
             new_email = data.get('email', user.email)
 
-            # Cek jika email diubah dan email baru ternyata sudah dipakai user lain
             if new_email != user.email:
                 existing_email = User.query.filter_by(email=new_email).first()
                 if existing_email:
@@ -185,7 +184,6 @@ def get_products():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Endpoint Produk Unggulan (Mengambil 6 produk pertama)
 @app.route('/api/products/featured', methods=['GET'])
 def get_featured_products():
     try:
@@ -194,7 +192,6 @@ def get_featured_products():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Endpoint Produk Populer (Mengambil 6 produk berikutnya)
 @app.route('/api/products/popular', methods=['GET'])
 def get_popular_products():
     try:
@@ -202,6 +199,8 @@ def get_popular_products():
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# --- ADDRESS ENDPOINTS ---
 
 # 1. Get Alamat User
 @app.route('/api/user/<int:user_id>/addresses', methods=['GET'])
@@ -216,7 +215,10 @@ def get_user_addresses(user_id):
 @app.route('/api/user/<int:user_id>/addresses', methods=['POST'])
 def add_user_address(user_id):
     try:
-        # Cek kuota alamat (maksimal 3)
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "Pengguna tidak ditemukan!"}), 404
+
         count = Address.query.filter_by(user_id=user_id).count()
         if count >= 3:
             return jsonify({"error": "Kamu sudah mencapai batas maksimal 3 alamat."}), 400
@@ -262,22 +264,6 @@ def delete_address(address_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-
-# 2. Tambah Alamat Baru (Validasi Maksimal 3 Alamat)
-@app.route('/api/user/<int:user_id>/addresses', methods=['POST'])
-def add_user_address(user_id):
-    try:
-        # Cek apakah user ada di database
-        user = db.session.get(User, user_id)
-        if not user:
-            return jsonify({"error": "Pengguna tidak ditemukan!"}), 404
-
-        # Cek kuota alamat (maksimal 3)
-        count = Address.query.filter_by(user_id=user_id).count()
-        if count >= 3:
-            return jsonify({"error": "Kamu sudah mencapai batas maksimal 3 alamat."}), 400
-        
-        # ... sisa kode di bawahnya tetap sama ...
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
