@@ -84,6 +84,27 @@ class Product(db.Model):
             "image": self.image
         }
 
+class Order(db.Model):
+    __tablename__ = 'orders'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    address = db.Column(db.Text, nullable=False)
+    payment_method = db.Column(db.String(50), nullable=False)
+    total_price = db.Column(db.Numeric(10, 2), nullable=False)
+    status = db.Column(db.String(50), default='Diproses')
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "address": self.address,
+            "payment_method": self.payment_method,
+            "total_price": float(self.total_price),
+            "status": self.status,
+            "created_at": self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else ""
+        }
+
 # ==========================================
 # ENDPOINT / ROUTES
 # ==========================================
@@ -261,6 +282,39 @@ def delete_address(address_id):
         db.session.delete(address)
         db.session.commit()
         return jsonify({"message": "Alamat berhasil dihapus"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# --- ENDPOINT BUAT PESANAN (CHECKOUT) ---
+@app.route('/api/user/<int:user_id>/orders', methods=['POST'])
+def create_order(user_id):
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "Pengguna tidak ditemukan!"}), 404
+
+        data = request.get_json()
+        address = data.get('address')
+        payment_method = data.get('payment_method')
+        total_price = data.get('total_price')
+
+        if not address or not payment_method or not total_price:
+            return jsonify({"error": "Data pesanan tidak lengkap! Pastikan alamat dan metode pembayaran telah dipilih."}), 400
+
+        new_order = Order(
+            user_id=user_id,
+            address=address,
+            payment_method=payment_method,
+            total_price=total_price
+        )
+        db.session.add(new_order)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Pesanan berhasil dibuat!",
+            "order": new_order.to_dict()
+        }), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
