@@ -24,6 +24,26 @@ db = SQLAlchemy(app)
 # MODEL DATABASE
 # ==========================================
 
+class Address(db.Model):
+    __tablename__ = 'addresses'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    label = db.Column(db.String(50), nullable=False)
+    recipient_name = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
+    full_address = db.Column(db.Text, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "label": self.label,
+            "recipient_name": self.recipient_name,
+            "phone": self.phone,
+            "full_address": self.full_address
+        }
+
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -182,6 +202,82 @@ def get_popular_products():
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# 1. Get Alamat User
+@app.route('/api/user/<int:user_id>/addresses', methods=['GET'])
+def get_user_addresses(user_id):
+    try:
+        addresses = Address.query.filter_by(user_id=user_id).all()
+        return jsonify([addr.to_dict() for addr in addresses]), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 2. Tambah Alamat Baru (Validasi Maksimal 3 Alamat)
+@app.route('/api/user/<int:user_id>/addresses', methods=['POST'])
+def add_user_address(user_id):
+    try:
+        # Cek kuota alamat (maksimal 3)
+        count = Address.query.filter_by(user_id=user_id).count()
+        if count >= 3:
+            return jsonify({"error": "Kamu sudah mencapai batas maksimal 3 alamat."}), 400
+
+        data = request.get_json()
+        label = data.get('label')
+        recipient_name = data.get('recipient_name')
+        phone = data.get('phone')
+        full_address = data.get('full_address')
+
+        if not label or not recipient_name or not phone or not full_address:
+            return jsonify({"error": "Semua field alamat wajib diisi!"}), 400
+
+        new_address = Address(
+            user_id=user_id,
+            label=label,
+            recipient_name=recipient_name,
+            phone=phone,
+            full_address=full_address
+        )
+        db.session.add(new_address)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Alamat berhasil ditambahkan!",
+            "address": new_address.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# 3. Hapus Alamat
+@app.route('/api/addresses/<int:address_id>', methods=['DELETE'])
+def delete_address(address_id):
+    try:
+        address = db.session.get(Address, address_id)
+        if not address:
+            return jsonify({"error": "Alamat tidak ditemukan"}), 404
+
+        db.session.delete(address)
+        db.session.commit()
+        return jsonify({"message": "Alamat berhasil dihapus"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# 2. Tambah Alamat Baru (Validasi Maksimal 3 Alamat)
+@app.route('/api/user/<int:user_id>/addresses', methods=['POST'])
+def add_user_address(user_id):
+    try:
+        # Cek apakah user ada di database
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "Pengguna tidak ditemukan!"}), 404
+
+        # Cek kuota alamat (maksimal 3)
+        count = Address.query.filter_by(user_id=user_id).count()
+        if count >= 3:
+            return jsonify({"error": "Kamu sudah mencapai batas maksimal 3 alamat."}), 400
+        
+        # ... sisa kode di bawahnya tetap sama ...
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
