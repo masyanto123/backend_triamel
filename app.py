@@ -1,13 +1,16 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from datetime import datetime
 import os
 
 app = Flask(__name__)
-# Konfigurasi CORS terbuka agar Flutter Web dapat mengakses API
+# Konfigurasi CORS terbuka agar Flutter Web / Mobile dapat mengakses API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# 1. Konfigurasi Koneksi Database
+# ==========================================
+# 1. KONFIGURASI KONEKSI DATABASE
+# ==========================================
 db_url = os.environ.get(
     'DATABASE_URL',
     'postgresql://neondb_owner:npg_LMGqD79goEWS@ep-muddy-butterfly-azxyk7tu-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
@@ -22,8 +25,24 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # ==========================================
-# MODEL DATABASE
+# 2. MODEL DATABASE
 # ==========================================
+
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    phone = db.Column(db.String(20), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "phone": self.phone or ""
+        }
 
 class Address(db.Model):
     __tablename__ = 'addresses'
@@ -43,22 +62,6 @@ class Address(db.Model):
             "recipient_name": self.recipient_name,
             "phone": self.phone,
             "full_address": self.full_address
-        }
-
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
-    phone = db.Column(db.String(20), nullable=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "email": self.email,
-            "phone": self.phone or ""
         }
 
 class Product(db.Model):
@@ -84,29 +87,75 @@ class Product(db.Model):
             "image": self.image
         }
 
+class Cart(db.Model):
+    __tablename__ = 'carts'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id', ondelete='CASCADE'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+    # Relasi ke Produk
+    product = db.relationship('Product', backref=db.backref('cart_items', cascade='all, delete-orphan'))
+
+    def to_dict(self):
+        return {
+            "cart_id": self.id,
+            "id": self.product_id,
+            "name": self.product.name if self.product else "",
+            "price": float(self.product.price) if self.product else 0.0,
+            "image": self.product.image if self.product else "plant_1.png",
+            "quantity": self.quantity,
+            "stock": self.product.stock if self.product else 0
+        }
+
 class Order(db.Model):
     __tablename__ = 'orders'
-    id = db.Column(db.Integer, primary_key=True)
+    # BigInteger agar mendukung timestamp ID millisecondsSinceEpoch dari Flutter
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     address = db.Column(db.Text, nullable=False)
     payment_method = db.Column(db.String(50), nullable=False)
     total_price = db.Column(db.Numeric(10, 2), nullable=False)
-    status = db.Column(db.String(50), default='Diproses')
+    status = db.Column(db.String(50), default='Menunggu Pembayaran')
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+
+    # Relasi ke OrderItems
+    items = db.relationship('OrderItem', backref='order', lazy=True, cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
             "id": self.id,
             "user_id": self.user_id,
-            "address": self.address,
-            "payment_method": self.payment_method,
-            "total_price": float(self.total_price),
+            "alamat": self.address,
+            "metodePembayaran": self.payment_method,
+            "total": float(self.total_price),
             "status": self.status,
-            "created_at": self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else ""
+            "tanggal": self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else "",
+            "items": [item.to_dict() for item in self.items]
+        }
+
+class OrderItem(db.Model):
+    __tablename__ = 'order_items'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.BigInteger, db.ForeignKey('orders.id', ondelete='CASCADE'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id', ondelete='CASCADE'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+
+    product = db.relationship('Product')
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "product_id": self.product_id,
+            "name": self.product.name if self.product else "",
+            "quantity": self.quantity,
+            "price": float(self.price)
         }
 
 # ==========================================
-# ENDPOINT / ROUTES
+# 3. ENDPOINTS / ROUTES
 # ==========================================
 
 # --- AUTH & USER ENDPOINTS ---
@@ -135,6 +184,7 @@ def register():
             "user": new_user.to_dict()
         }), 201
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/login', methods=['POST'])
@@ -223,7 +273,6 @@ def get_popular_products():
 
 # --- ADDRESS ENDPOINTS ---
 
-# 1. Get Alamat User
 @app.route('/api/user/<int:user_id>/addresses', methods=['GET'])
 def get_user_addresses(user_id):
     try:
@@ -232,7 +281,6 @@ def get_user_addresses(user_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 2. Tambah Alamat Baru (Validasi Maksimal 3 Alamat)
 @app.route('/api/user/<int:user_id>/addresses', methods=['POST'])
 def add_user_address(user_id):
     try:
@@ -271,7 +319,6 @@ def add_user_address(user_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# 3. Hapus Alamat
 @app.route('/api/addresses/<int:address_id>', methods=['DELETE'])
 def delete_address(address_id):
     try:
@@ -286,7 +333,70 @@ def delete_address(address_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# --- ENDPOINT BUAT PESANAN (CHECKOUT) ---
+# --- KERANJANG (CART) ENDPOINTS ---
+
+# 1. Get Keranjang User
+@app.route('/api/user/<int:user_id>/cart', methods=['GET'])
+def get_cart(user_id):
+    try:
+        cart_items = Cart.query.filter_by(user_id=user_id).all()
+        return jsonify([item.to_dict() for item in cart_items]), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 2. Tambah/Update Item ke Keranjang
+@app.route('/api/user/<int:user_id>/cart', methods=['POST'])
+def add_to_cart(user_id):
+    try:
+        data = request.get_json()
+        product_id = data.get('product_id')
+        quantity = data.get('quantity', 1)
+
+        if not product_id:
+            return jsonify({"error": "Product ID wajib diisi!"}), 400
+
+        # Cek apakah produk sudah ada di keranjang user
+        existing_item = Cart.query.filter_by(user_id=user_id, product_id=product_id).first()
+
+        if existing_item:
+            existing_item.quantity += quantity
+        else:
+            new_cart_item = Cart(user_id=user_id, product_id=product_id, quantity=quantity)
+            db.session.add(new_cart_item)
+
+        db.session.commit()
+        return jsonify({"message": "Produk berhasil ditambahkan ke keranjang"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# 3. Hapus 1 Item dari Keranjang
+@app.route('/api/cart/<int:cart_id>', methods=['DELETE'])
+def delete_cart_item(cart_id):
+    try:
+        cart_item = db.session.get(Cart, cart_id)
+        if not cart_item:
+            return jsonify({"error": "Item keranjang tidak ditemukan"}), 404
+
+        db.session.delete(cart_item)
+        db.session.commit()
+        return jsonify({"message": "Item berhasil dihapus dari keranjang"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# --- ORDERS & CHECKOUT ENDPOINTS ---
+
+# 1. Get Daftar Pesanan User
+@app.route('/api/user/<int:user_id>/orders', methods=['GET'])
+def get_user_orders(user_id):
+    try:
+        orders = Order.query.filter_by(user_id=user_id).order_by(Order.created_at.desc()).all()
+        return jsonify([order.to_dict() for order in orders]), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# 2. Buat Pesanan Baru (Checkout)
 @app.route('/api/user/<int:user_id>/orders', methods=['POST'])
 def create_order(user_id):
     try:
@@ -295,20 +405,44 @@ def create_order(user_id):
             return jsonify({"error": "Pengguna tidak ditemukan!"}), 404
 
         data = request.get_json()
-        address = data.get('address')
-        payment_method = data.get('payment_method')
-        total_price = data.get('total_price')
+        
+        # Mengambil ID khusus dari Flutter (millisecondsSinceEpoch) atau buat otomatis
+        order_id = data.get('id', int(datetime.utcnow().timestamp() * 1000))
+        address = data.get('address') or data.get('alamat')
+        payment_method = data.get('payment_method') or data.get('metodePembayaran')
+        total_price = data.get('total_price') or data.get('total')
+        items = data.get('items', [])
 
         if not address or not payment_method or not total_price:
             return jsonify({"error": "Data pesanan tidak lengkap! Pastikan alamat dan metode pembayaran telah dipilih."}), 400
 
+        # Simpan Header Pesanan
         new_order = Order(
+            id=order_id,
             user_id=user_id,
             address=address,
             payment_method=payment_method,
             total_price=total_price
         )
         db.session.add(new_order)
+
+        # Simpan Detail Item Pesanan
+        for item in items:
+            product_id = item.get('id') or item.get('product_id')
+            quantity = item.get('quantity', 1)
+            price = item.get('price', 0)
+
+            order_item = OrderItem(
+                order_id=order_id,
+                product_id=product_id,
+                quantity=quantity,
+                price=price
+            )
+            db.session.add(order_item)
+
+        # Otomatis Kosongkan Keranjang User di Database setelah Checkout
+        Cart.query.filter_by(user_id=user_id).delete()
+
         db.session.commit()
 
         return jsonify({
@@ -319,5 +453,10 @@ def create_order(user_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# ==========================================
+# RUN APP
+# ==========================================
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()  # Memastikan semua tabel di NeonDB otomatis terbuat/diperbarui
     app.run(host='0.0.0.0', port=5000, debug=True)
