@@ -1,4 +1,3 @@
-Python
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -23,12 +22,11 @@ if db_url and db_url.startswith("postgres://"):
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# 👇 TAMBAHKAN BAGIAN INI UNTUK MENCEGAH ERROR SSL TERTUTUP DI RAILWAY 👇
+# Mencegah error SSL tertutup di Railway
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True, # Mengecek koneksi (ping) sebelum menjalankan query
-    "pool_recycle": 300,   # Mendaur ulang koneksi setiap 300 detik
+    "pool_pre_ping": True, 
+    "pool_recycle": 300,   
 }
-# 👆 ================================================================ 👆
 
 db = SQLAlchemy(app)
 
@@ -103,7 +101,6 @@ class Cart(db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
-    # Relasi ke Produk
     product = db.relationship('Product', backref=db.backref('cart_items', cascade='all, delete-orphan'))
 
     def to_dict(self):
@@ -119,8 +116,7 @@ class Cart(db.Model):
 
 class Order(db.Model):
     __tablename__ = 'orders'
-    # BigInteger agar mendukung timestamp ID millisecondsSinceEpoch dari Flutter
-    id = db.Column(db.BigInteger, primary_key=True, autoincrement=False)
+    id = db.Column(db.Integer, primary_key=True) # Menggunakan Integer autoincrement standar
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     address = db.Column(db.Text, nullable=False)
     payment_method = db.Column(db.String(50), nullable=False)
@@ -128,7 +124,6 @@ class Order(db.Model):
     status = db.Column(db.String(50), default='Menunggu Pembayaran')
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
-    # Relasi ke OrderItems
     items = db.relationship('OrderItem', backref='order', lazy=True, cascade="all, delete-orphan")
 
     def to_dict(self):
@@ -146,7 +141,7 @@ class Order(db.Model):
 class OrderItem(db.Model):
     __tablename__ = 'order_items'
     id = db.Column(db.Integer, primary_key=True)
-    order_id = db.Column(db.BigInteger, db.ForeignKey('orders.id', ondelete='CASCADE'), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey('orders.id', ondelete='CASCADE'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('products.id', ondelete='CASCADE'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Numeric(10, 2), nullable=False)
@@ -165,8 +160,6 @@ class OrderItem(db.Model):
 # ==========================================
 # 3. ENDPOINTS / ROUTES
 # ==========================================
-
-# --- AUTH & USER ENDPOINTS ---
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -211,7 +204,6 @@ def login():
             }), 200
         else:
             return jsonify({"error": "Email atau password salah!"}), 401
-            
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -247,18 +239,14 @@ def manage_user(user_id):
             db.session.rollback()
             return jsonify({"error": str(e)}), 500
 
-# --- PRODUCT ENDPOINTS ---
-
 @app.route('/api/products', methods=['GET'])
 def get_products():
     try:
         category_filter = request.args.get('category')
-        
         if category_filter and category_filter != 'Semua':
             products = Product.query.filter_by(category=category_filter).all()
         else:
             products = Product.query.all()
-            
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -278,8 +266,6 @@ def get_popular_products():
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# --- ADDRESS ENDPOINTS ---
 
 @app.route('/api/user/<int:user_id>/addresses', methods=['GET'])
 def get_user_addresses(user_id):
@@ -341,9 +327,6 @@ def delete_address(address_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# --- KERANJANG (CART) ENDPOINTS ---
-
-# 1. Get Keranjang User
 @app.route('/api/user/<int:user_id>/cart', methods=['GET'])
 def get_cart(user_id):
     try:
@@ -352,7 +335,6 @@ def get_cart(user_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 2. Tambah/Update Item ke Keranjang
 @app.route('/api/user/<int:user_id>/cart', methods=['POST'])
 def add_to_cart(user_id):
     try:
@@ -363,7 +345,6 @@ def add_to_cart(user_id):
         if not product_id:
             return jsonify({"error": "Product ID wajib diisi!"}), 400
 
-        # Cek apakah produk sudah ada di keranjang user
         existing_item = Cart.query.filter_by(user_id=user_id, product_id=product_id).first()
 
         if existing_item:
@@ -378,93 +359,66 @@ def add_to_cart(user_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# 3. Hapus 1 Item dari Keranjang
-@app.route('/api/cart/<int:cart_id>', methods=['DELETE'])
-def delete_cart_item(cart_id):
-    try:
-        cart_item = db.session.get(Cart, cart_id)
-        if not cart_item:
-            return jsonify({"error": "Item keranjang tidak ditemukan"}), 404
+# ==========================================
+# 4. ORDER / PESANAN ENDPOINTS (BARU)
+# ==========================================
 
-        db.session.delete(cart_item)
-        db.session.commit()
-        return jsonify({"message": "Item berhasil dihapus dari keranjang"}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-# --- ORDERS & CHECKOUT ENDPOINTS ---
-
-# 1. Get Daftar Pesanan User
+# Ambil daftar pesanan user
 @app.route('/api/user/<int:user_id>/orders', methods=['GET'])
 def get_user_orders(user_id):
     try:
-        orders = Order.query.filter_by(user_id=user_id).order_by(Order.created_at.desc()).all()
+        orders = Order.query.filter_by(user_id=user_id).all()
         return jsonify([order.to_dict() for order in orders]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# 2. Buat Pesanan Baru (Checkout)
+# Buat pesanan baru (Checkout)
 @app.route('/api/user/<int:user_id>/orders', methods=['POST'])
 def create_order(user_id):
     try:
-        user = db.session.get(User, user_id)
-        if not user:
-            return jsonify({"error": "Pengguna tidak ditemukan!"}), 404
-
         data = request.get_json()
-        
-        # Mengambil ID khusus dari Flutter (millisecondsSinceEpoch) atau buat otomatis
-        order_id = data.get('id', int(datetime.utcnow().timestamp() * 1000))
-        address = data.get('address') or data.get('alamat')
-        payment_method = data.get('payment_method') or data.get('metodePembayaran')
-        total_price = data.get('total_price') or data.get('total')
-        items = data.get('items', [])
+        address = data.get('address')
+        payment_method = data.get('payment_method')
+        total_price = data.get('total_price')
+        items = data.get('items', []) # Berisi list produk dari keranjang
 
-        if not address or not payment_method or not total_price:
-            return jsonify({"error": "Data pesanan tidak lengkap! Pastikan alamat dan metode pembayaran telah dipilih."}), 400
+        if not address or not payment_method or not total_price or not items:
+            return jsonify({"error": "Data pesanan tidak lengkap!"}), 400
 
-        # Simpan Header Pesanan
+        # Simpan ke tabel orders
         new_order = Order(
-            id=order_id,
             user_id=user_id,
             address=address,
             payment_method=payment_method,
-            total_price=total_price
+            total_price=total_price,
+            status='Menunggu Pembayaran'
         )
         db.session.add(new_order)
+        db.session.flush() # Agar new_order.id langsung terbentuk
 
-        # Simpan Detail Item Pesanan
+        # Simpan detail item ke tabel order_items
         for item in items:
-            product_id = item.get('id') or item.get('product_id')
-            quantity = item.get('quantity', 1)
-            price = item.get('price', 0)
-
             order_item = OrderItem(
-                order_id=order_id,
-                product_id=product_id,
-                quantity=quantity,
-                price=price
+                order_id=new_order.id,
+                product_id=item['product_id'],
+                quantity=item['quantity'],
+                price=item['price']
             )
             db.session.add(order_item)
 
-        # Otomatis Kosongkan Keranjang User di Database setelah Checkout
+        # Hapus keranjang user setelah checkout berhasil
         Cart.query.filter_by(user_id=user_id).delete()
 
         db.session.commit()
-
         return jsonify({
             "message": "Pesanan berhasil dibuat!",
             "order": new_order.to_dict()
         }), 201
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# ==========================================
-# RUN APP
-# ==========================================
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # Memastikan semua tabel di NeonDB otomatis terbuat/diperbarui
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8080)
