@@ -373,6 +373,7 @@ def get_user_orders(user_id):
         return jsonify({"error": str(e)}), 500
 
 # Buat pesanan baru (Checkout)
+# Buat pesanan baru (Checkout) dengan Pengurangan Stok Otomatis
 @app.route('/api/user/<int:user_id>/orders', methods=['POST'])
 def create_order(user_id):
     try:
@@ -396,22 +397,45 @@ def create_order(user_id):
         db.session.add(new_order)
         db.session.flush() # Agar new_order.id langsung terbentuk
 
-        # Simpan detail item ke tabel order_items
+        # Simpan detail item ke tabel order_items DAN potong stok produk
         for item in items:
+            product_id = item.get('product_id')
+            quantity = item.get('quantity', 0)
+            price = item.get('price')
+
+            # 1. Cari produk berdasarkan product_id
+            product = db.session.get(Product, product_id)
+            if not product:
+                db.session.rollback()
+                return jsonify({"error": f"Produk dengan ID {product_id} tidak ditemukan!"}), 404
+
+            # 2. Validasi Ketersediaan Stok
+            if product.stock < quantity:
+                db.session.rollback()
+                return jsonify({
+                    "error": f"Stok untuk produk '{product.name}' tidak mencukupi! Tersisa {product.stock} pcs."
+                }), 400
+
+            # 3. KEKURANGAN UTAMA SEBELUMNYA: KURANGI STOK PRODUK DI SINI!
+            product.stock -= quantity
+
+            # 4. Simpan ke OrderItem
             order_item = OrderItem(
                 order_id=new_order.id,
-                product_id=item['product_id'],
-                quantity=item['quantity'],
-                price=item['price']
+                product_id=product_id,
+                quantity=quantity,
+                price=price
             )
             db.session.add(order_item)
 
         # Hapus keranjang user setelah checkout berhasil
         Cart.query.filter_by(user_id=user_id).delete()
 
+        # Simpan semua perubahan (Order + OrderItem + Pengurangan Stok + Hapus Cart) secara Atomic
         db.session.commit()
+
         return jsonify({
-            "message": "Pesanan berhasil dibuat!",
+            "message": "Pesanan berhasil dibuat dan stok telah diperbarui!",
             "order": new_order.to_dict()
         }), 201
 
