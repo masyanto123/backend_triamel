@@ -1,3 +1,4 @@
+Python
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -21,6 +22,13 @@ if db_url and db_url.startswith("postgres://"):
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# 👇 TAMBAHKAN BAGIAN INI UNTUK MENCEGAH ERROR SSL TERTUTUP DI RAILWAY 👇
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_pre_ping": True, # Mengecek koneksi (ping) sebelum menjalankan query
+    "pool_recycle": 300,   # Mendaur ulang koneksi setiap 300 detik
+}
+# 👆 ================================================================ 👆
 
 db = SQLAlchemy(app)
 
