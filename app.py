@@ -161,6 +161,14 @@ class OrderItem(db.Model):
 # 3. ENDPOINTS / ROUTES
 # ==========================================
 
+# ==========================================
+# 3. ENDPOINTS / ROUTES
+# ==========================================
+
+# ------------------------------------------
+# AUTH & USER ENDPOINTS
+# ------------------------------------------
+
 @app.route('/api/register', methods=['POST'])
 def register():
     try:
@@ -188,6 +196,7 @@ def register():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
@@ -206,6 +215,7 @@ def login():
             return jsonify({"error": "Email atau password salah!"}), 401
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/user/<int:user_id>', methods=['GET', 'PUT'])
 def manage_user(user_id):
@@ -239,6 +249,10 @@ def manage_user(user_id):
             db.session.rollback()
             return jsonify({"error": str(e)}), 500
 
+# ------------------------------------------
+# PRODUCT ENDPOINTS
+# ------------------------------------------
+
 @app.route('/api/products', methods=['GET'])
 def get_products():
     try:
@@ -251,6 +265,7 @@ def get_products():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/api/products/featured', methods=['GET'])
 def get_featured_products():
     try:
@@ -258,6 +273,7 @@ def get_featured_products():
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/products/popular', methods=['GET'])
 def get_popular_products():
@@ -267,6 +283,10 @@ def get_popular_products():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ------------------------------------------
+# ADDRESS ENDPOINTS
+# ------------------------------------------
+
 @app.route('/api/user/<int:user_id>/addresses', methods=['GET'])
 def get_user_addresses(user_id):
     try:
@@ -274,6 +294,7 @@ def get_user_addresses(user_id):
         return jsonify([addr.to_dict() for addr in addresses]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/user/<int:user_id>/addresses', methods=['POST'])
 def add_user_address(user_id):
@@ -313,6 +334,7 @@ def add_user_address(user_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/api/addresses/<int:address_id>', methods=['DELETE'])
 def delete_address(address_id):
     try:
@@ -327,6 +349,10 @@ def delete_address(address_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# ------------------------------------------
+# CART ENDPOINTS
+# ------------------------------------------
+
 @app.route('/api/user/<int:user_id>/cart', methods=['GET'])
 def get_cart(user_id):
     try:
@@ -334,6 +360,7 @@ def get_cart(user_id):
         return jsonify([item.to_dict() for item in cart_items]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/user/<int:user_id>/cart', methods=['POST'])
 def add_to_cart(user_id):
@@ -359,11 +386,38 @@ def add_to_cart(user_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
-# ==========================================
-# 4. ORDER / PESANAN ENDPOINTS (BARU)
-# ==========================================
 
-# Ambil daftar pesanan user
+# [DITAMBAHKAN] Endpoint Hapus 1 Item dari Keranjang
+@app.route('/api/cart/<int:cart_id>', methods=['DELETE'])
+def delete_cart_item(cart_id):
+    try:
+        cart_item = db.session.get(Cart, cart_id)
+        if not cart_item:
+            return jsonify({"error": "Item keranjang tidak ditemukan!"}), 404
+
+        db.session.delete(cart_item)
+        db.session.commit()
+        return jsonify({"message": "Item berhasil dihapus dari keranjang!"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+# [DITAMBAHKAN] Endpoint Kosongkan Seluruh Keranjang User
+@app.route('/api/user/<int:user_id>/cart', methods=['DELETE'])
+def clear_user_cart(user_id):
+    try:
+        Cart.query.filter_by(user_id=user_id).delete()
+        db.session.commit()
+        return jsonify({"message": "Keranjang berhasil dikosongkan!"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# ------------------------------------------
+# ORDER / PESANAN ENDPOINTS
+# ------------------------------------------
+
 @app.route('/api/user/<int:user_id>/orders', methods=['GET'])
 def get_user_orders(user_id):
     try:
@@ -372,8 +426,7 @@ def get_user_orders(user_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Buat pesanan baru (Checkout)
-# Buat pesanan baru (Checkout) dengan Pengurangan Stok Otomatis
+
 @app.route('/api/user/<int:user_id>/orders', methods=['POST'])
 def create_order(user_id):
     try:
@@ -381,12 +434,12 @@ def create_order(user_id):
         address = data.get('address')
         payment_method = data.get('payment_method')
         total_price = data.get('total_price')
-        items = data.get('items', []) # Berisi list produk dari keranjang
+        items = data.get('items', [])
 
         if not address or not payment_method or not total_price or not items:
             return jsonify({"error": "Data pesanan tidak lengkap!"}), 400
 
-        # Simpan ke tabel orders
+        # 1. Simpan ke tabel orders
         new_order = Order(
             user_id=user_id,
             address=address,
@@ -395,31 +448,28 @@ def create_order(user_id):
             status='Menunggu Pembayaran'
         )
         db.session.add(new_order)
-        db.session.flush() # Agar new_order.id langsung terbentuk
+        db.session.flush()
 
-        # Simpan detail item ke tabel order_items DAN potong stok produk
+        # 2. Simpan detail order_items DAN kurangi stok produk
         for item in items:
             product_id = item.get('product_id')
             quantity = item.get('quantity', 0)
             price = item.get('price')
 
-            # 1. Cari produk berdasarkan product_id
             product = db.session.get(Product, product_id)
             if not product:
                 db.session.rollback()
                 return jsonify({"error": f"Produk dengan ID {product_id} tidak ditemukan!"}), 404
 
-            # 2. Validasi Ketersediaan Stok
             if product.stock < quantity:
                 db.session.rollback()
                 return jsonify({
                     "error": f"Stok untuk produk '{product.name}' tidak mencukupi! Tersisa {product.stock} pcs."
                 }), 400
 
-            # 3. KEKURANGAN UTAMA SEBELUMNYA: KURANGI STOK PRODUK DI SINI!
+            # Potong stok produk
             product.stock -= quantity
 
-            # 4. Simpan ke OrderItem
             order_item = OrderItem(
                 order_id=new_order.id,
                 product_id=product_id,
@@ -428,10 +478,10 @@ def create_order(user_id):
             )
             db.session.add(order_item)
 
-        # Hapus keranjang user setelah checkout berhasil
+        # 3. Kosongkan keranjang user
         Cart.query.filter_by(user_id=user_id).delete()
 
-        # Simpan semua perubahan (Order + OrderItem + Pengurangan Stok + Hapus Cart) secara Atomic
+        # 4. Commit semua transaksi secara atomic
         db.session.commit()
 
         return jsonify({
@@ -442,7 +492,3 @@ def create_order(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
