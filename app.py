@@ -157,18 +157,6 @@ class OrderItem(db.Model):
             "price": float(self.price)
         }
 
-# ==========================================
-# 3. ENDPOINTS / ROUTES
-# ==========================================
-
-# ==========================================
-# 3. ENDPOINTS / ROUTES
-# ==========================================
-
-# ------------------------------------------
-# AUTH & USER ENDPOINTS
-# ------------------------------------------
-
 @app.route('/api/register', methods=['POST'])
 def register():
     try:
@@ -248,6 +236,51 @@ def manage_user(user_id):
         except Exception as e:
             db.session.rollback()
             return jsonify({"error": str(e)}), 500
+# ==========================================
+# 3. ENDPOINT UBAH SANDI (CHANGE PASSWORD)
+# ==========================================
+
+@app.route('/api/change-password', methods=['POST'])
+def change_password():
+    try:
+        data = request.get_json()
+        
+        user_id = data.get('user_id')
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+
+        # 1. Validasi Kelengkapan Request
+        if not user_id or not old_password or not new_password:
+            return jsonify({"status": False, "message": "Semua kolom wajib diisi!"}), 400
+
+        # 2. Cari User Berdasarkan user_id
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"status": False, "message": "Pengguna tidak ditemukan!"}), 404
+
+        # 3. Cek Password Lama (Ganti dengan werkzeug.security jika menggunakan Hashing)
+        if user.password != old_password:
+            return jsonify({"status": False, "message": "Kata sandi lama salah!"}), 400
+
+        # 4. Simpan Password Baru
+        user.password = new_password
+        db.session.commit()
+
+        return jsonify({
+            "status": True,
+            "message": "Kata sandi berhasil diperbarui!"
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": False, "message": str(e)}), 500
+
+
+# Jalankan Server (Tambahkan di baris paling bawah script jika belum ada)
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(host='0.0.0.0', port=5000, debug=True)
 
 # ------------------------------------------
 # PRODUCT ENDPOINTS
