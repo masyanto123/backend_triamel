@@ -275,13 +275,6 @@ def change_password():
         db.session.rollback()
         return jsonify({"status": False, "message": str(e)}), 500
 
-
-# Jalankan Server (Tambahkan di baris paling bawah script jika belum ada)
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(host='0.0.0.0', port=5000, debug=True)
-
 # ------------------------------------------
 # PRODUCT ENDPOINTS
 # ------------------------------------------
